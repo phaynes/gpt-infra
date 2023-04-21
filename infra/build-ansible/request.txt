@@ -1,0 +1,13 @@
+Please write the source code to build an OCI container called BuildContainer.
+ BuildContainer should use a redhat image that has a STIG from the ironbank docker repository.
+BuildContainer is required to be able to:
+1. Run ansible 
+1. Build four virtual machines (VMs) on AWS in Sydney using Ansible. 
+2. Install docker into each VM
+3. Assign with a specific IP host names are 1SkyDemo-CInt, 1SkyDemo-mgt, 1SkyDemo-dmz and 1SkyDemo-ASOC
+4. Shutdown the VMs when required 
+5. Provide access to the VM to a management public key called 1SkyDemo that uses the ed25519 algorithm.
+6. Builds another set of SSH key pairs for each host. 
+
+
+
