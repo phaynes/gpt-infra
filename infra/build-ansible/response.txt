@@ -1,0 +1,101 @@
+To create a container as per your requirements, you will need to perform the following steps:
+
+1. Write a Dockerfile for the BuildContainer.
+2. Build the Docker image.
+3. Write an Ansible playbook to create the four VMs on AWS, install Docker, configure hostnames, and manage SSH keys.
+4. Run the Ansible playbook from within the BuildContainer.
+
+Here is a basic outline of how you can achieve this:
+
+1. Write a Dockerfile for the BuildContainer:
+
+```Dockerfile
+# Use a Red Hat image with STIG from the IronBank repository
+FROM registry1.dso.mil/ironbank/redhat/redhat_stig:latest
+
+# Install Ansible and AWS CLI
+RUN yum install -y ansible python3-pip && \
+    pip3 install --upgrade awscli && \
+    yum clean all
+
+# Copy your Ansible playbook and required files into the container
+COPY create_vms.yml /ansible/
+COPY management_public_key /ansible/
+```
+
+2. Build the Docker image:
+
+```
+docker build -t buildcontainer .
+```
+
+3. Write an Ansible playbook (`create_vms.yml`) to create the VMs on AWS, install Docker, configure hostnames, and manage SSH keys:
+
+```yaml
+---
+- name: Create AWS VMs and configure them
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    # Add your AWS keys and other required variables here
+    - name: Set AWS credentials
+      set_fact:
+        aws_access_key: "YOUR_AWS_ACCESS_KEY"
+        aws_secret_key: "YOUR_AWS_SECRET_KEY"
+        region: "ap-southeast-2"  # Sydney region
+        instance_type: "t2.micro"
+        image_id: "ami-xxxxxxxxxxxxxxxxx"  # Red Hat Enterprise Linux AMI ID
+        management_public_key: "1SkyDemo"  # Key pair name
+
+    # Create four VMs on AWS using the EC2 module
+    - name: Create VMs on AWS
+      amazon.aws.ec2:
+        aws_access_key: "{{ aws_access_key }}"
+        aws_secret_key: "{{ aws_secret_key }}"
+        region: "{{ region }}"
+        instance_type: "{{ instance_type }}"
+        image: "{{ image_id }}"
+        count: 4
+        key_name: "{{ management_public_key }}"
+        instance_tags:
+          Name: "{{ item }}"
+        wait: yes
+      loop:
+        - 1SkyDemo-CInt
+        - 1SkyDemo-mgt
+        - 1SkyDemo-dmz
+        - 1SkyDemo-ASOC
+      register: ec2_instances
+
+    # Add the created VMs to the in-memory inventory
+    - name: Add VMs to the inventory
+      add_host:
+        hostname: "{{ item.public_ip }}"
+        group: aws_vms
+      loop: "{{ ec2_instances.instances }}"
+
+- name: Configure VMs
+  hosts: aws_vms
+  gather_facts: no
+  tasks:
+    # Install Docker on each VM
+    - name: Install Docker
+      ansible.builtin.package:
+        name: docker
+        state: present
+
+    # Assign hostnames
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    # Add management public key to the authorized keys
+    - name: Add management public key to authorized_keys
+      ansible.builtin.authorized_key:
+        user: ec2-user
+        state: present
+        key: "{{ lookup('file', '/ansible/management_public_key') }}"
+
+    # Create a new SSH key pair for each host
+    - name: Generate new SSH key pair
+      ansible.builtin.openssh
