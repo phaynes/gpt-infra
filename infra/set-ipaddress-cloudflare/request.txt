@@ -1,0 +1,1 @@
+Using a curl API  please provide the command to set the A record of a DNS entry in cloudflare 

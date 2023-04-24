@@ -1,0 +1,15 @@
+Please write the source code to create an OCI container named "BuildJumpHost". This container should build a virtual machine (VM) on Amazon Web Services (AWS) and assign a specific IP address to the hostname "1sky-jump". The IP address should be recorded against the DNS A record "1sky-jump.dnsdevsecops.com", which is hosted by CloudFlare. The purpose of this VM is to act as a jump host for other VMs.
+
+To create this container, please use a Red Hat image that has a Security Technical Implementation Guide (STIG) from the "ironbank" Docker repository (registry1.dso.mil) such as ubi8-minimal. Please use the account "Philip_Haynes" and the password "5JaeSknfGCdTg1TNrVhilLNsgQlV0AMm" to access the registry.
+
+BuildJumpHost must have the following capabilities:
+
+Run Ansible
+Use Ansible to create a VM on AWS in the Sydney region. Please use a t2.micro instance type with an Amazon Linux 2023 AMI, and use the access key pair "1SkyDemo". The VPC to be used is "vpc-01d625522816619eb".
+Install Docker on the VM
+Assign the hostname "1sky-jump" to the VM's specific IP address
+Provide access to the VM for a management public key called "1SkyDemo", which uses the ed25519 algorithm.
+Record the VM's IP address and associate it with the A record for "1sky-jump.dnsdevsecops.com", which is hosted by CloudFlare.
+Upon successful creation of the container, it should be possible to run it and build a VM that can be logged into. Please provide instructions on how to do so.
+
+Additionally, please provide an Ansible script that can be used to terminate the VM and destroy all its resources.

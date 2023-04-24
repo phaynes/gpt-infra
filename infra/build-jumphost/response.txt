@@ -1,0 +1,148 @@
+To create the OCI container named "BuildJumpHost", follow the steps below:
+
+1. Create a new file called `Dockerfile` with the following content:
+
+```Dockerfile
+# Use the Red Hat UBI8-minimal image with STIG from the IronBank repository
+FROM registry1.dso.mil/ironbank/redhat/ubi8-minimal:latest
+
+# Set up Docker registry authentication
+ARG DOCKER_REGISTRY_USERNAME
+ARG DOCKER_REGISTRY_PASSWORD
+RUN echo "${DOCKER_REGISTRY_USERNAME}:${DOCKER_REGISTRY_PASSWORD}" | base64
+
+# Install required packages
+RUN microdnf install -y python3 python3-pip openssh-clients && \
+    microdnf clean all && \
+    pip3 install ansible boto3
+
+# Copy Ansible configuration files and playbooks
+COPY ansible /ansible
+WORKDIR /ansible
+
+# Run the Ansible playbook to create the VM and configure CloudFlare DNS
+CMD ["ansible-playbook", "create_vm.yml"]
+```
+
+2. In the `ansible` folder, create a new file called `create_vm.yml` with the following content:
+
+```yaml
+---
+- name: Create AWS VM and configure CloudFlare DNS
+  hosts: localhost
+  gather_facts: no
+  vars:
+    aws_region: ap-southeast-2
+    aws_access_key: <your_aws_access_key>
+    aws_secret_key: <your_aws_secret_key>
+    cf_api_token: <your_cloudflare_api_token>
+    cf_zone: dnsdevsecops.com
+    cf_record: 1sky-jump
+    vpc_subnet_id: vpc-01d625522816619eb
+    instance_type: t2.micro
+
+  tasks:
+    - name: Provision AWS instance
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        key_name: 1SkyDemo
+        instance_type: "{{ instance_type }}"
+        image: ami-xxxxxxxxxxxxxxxxx # Replace with Amazon Linux 2023 AMI ID for Sydney region
+        instance_tags:
+          Name: 1sky-jump
+        vpc_subnet_id: "{{ vpc_subnet_id }}"
+        wait: yes
+        assign_public_ip: yes
+      register: ec2
+
+    - name: Set IP address
+      set_fact:
+        instance_public_ip: "{{ ec2.instances[0].public_ip }}"
+
+    - name: Install Docker
+      ansible.builtin.shell: |
+        sudo yum update -y
+        sudo amazon-linux-extras install docker -y
+        sudo service docker start
+        sudo usermod -a -G docker ec2-user
+      delegate_to: "{{ instance_public_ip }}"
+      remote_user: ec2-user
+      become: yes
+      become_method: sudo
+
+    - name: Configure CloudFlare DNS A record
+      community.cloudflare.cloudflare_dns:
+        zone: "{{ cf_zone }}"
+        record: "{{ cf_record }}"
+        type: A
+        content: "{{ instance_public_ip }}"
+        proxied: no
+        state: present
+        account_api_token: "{{ cf_api_token }}"
+```
+
+3. In the `ansible` folder, create a new file called `terminate_vm.yml` with the following content:
+
+```yaml
+---
+- name: Terminate AWS VM and destroy resources
+  hosts: localhost
+  gather_facts: no
+  vars:
+    aws_region: ap-southeast-2
+    aws_access_key: <your_aws_access_key>
+    aws_secret_key: <your_aws_secret_key>
+    instance_name: 1sky-jump
+
+  tasks:
+    - name: Find instance by name
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+   	tag:Name": "{{ instance_name }}"
+      register: instances_info
+
+    - name: Terminate the instance
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        instance_ids: "{{ instances_info.instances[0].instance_id }}"
+        state: absent
+      when: instances_info.instances|length > 0
+
+    - name: Remove the CloudFlare DNS A record
+      vars:
+        cf_api_token: <your_cloudflare_api_token>
+        cf_zone: dnsdevsecops.com
+        cf_record: 1sky-jump
+      community.cloudflare.cloudflare_dns:
+        zone: "{{ cf_zone }}"
+        record: "{{ cf_record }}"
+        type: A
+        state: absent
+        account_api_token: "{{ cf_api_token }}"
+```
+
+To build the container, run the following command:
+
+```
+docker build --build-arg DOCKER_REGISTRY_USERNAME=Philip_Haynes --build-arg DOCKER_REGISTRY_PASSWORD=5JaeSknfGCdTg1TNrVhilLNsgQlV0AMm -t buildjumphost .
+```
+
+To run the container, execute:
+
+```
+docker run --rm buildjumphost
+```
+
+After the container finishes running, you should be able to log into the VM using the 1SkyDemo key pair:
+
+```
+ssh -i 1SkyDemo.pem ec2-user@1sky-jump.dnsdevsecops.com
+```
+
+To terminate the VM and destroy all its resources, run the following command:
+
+```
+ansible-playbook ansible/terminate_vm.yml
+```
+

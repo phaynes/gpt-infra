@@ -1,0 +1,21 @@
+Sure! Here's an example `curl` command that sets the A record of a DNS entry in Cloudflare using their API:
+
+```
+curl -X PUT "https://api.cloudflare.com/client/v4/zones/{ZONE_ID}/dns_records/{DNS_RECORD_ID}" \
+     -H "Authorization: Bearer {API_TOKEN}" \
+     -H "Content-Type: application/json" \
+     --data '{"type":"A","name":"example.com","content":"192.0.2.1","ttl":120,"proxied":false}'
+```
+
+You will need to replace `{ZONE_ID}`, `{DNS_RECORD_ID}`, `{API_TOKEN}` and other parameters with your actual values. Here's what each parameter means:
+
+- `{ZONE_ID}`: the identifier of the zone in Cloudflare where the DNS record is located.
+- `{DNS_RECORD_ID}`: the identifier of the DNS record in Cloudflare that you want to update.
+- `{API_TOKEN}`: your Cloudflare API token that has the necessary permissions to update DNS records.
+- `type`: the type of DNS record, which in this case is an A record.
+- `name`: the domain name of the DNS record.
+- `content`: the IP address that the DNS record should point to.
+- `ttl`: the time-to-live value of the DNS record in seconds.
+- `proxied`: whether the DNS record should be proxied through Cloudflare or not. Set this to `false` if you want to bypass Cloudflare's proxy for this record.
+
+Note that you may need to install `curl` and authenticate with Cloudflare's API before running this command. You can find more information about Cloudflare's API authentication and documentation here: https://developers.cloudflare.com/api.
