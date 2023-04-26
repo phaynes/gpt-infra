@@ -1,148 +1,175 @@
-To create the OCI container named "BuildJumpHost", follow the steps below:
+Below, you'll find a Dockerfile and an Ansible playbook to achieve the requested functionality. Keep in mind that storing credentials and sensitive information like private keys in a script or a Dockerfile is not a secure practice. You should use environment variables or a secrets manager to handle sensitive data.
 
-1. Create a new file called `Dockerfile` with the following content:
+1. Create a Dockerfile with the following content:
 
-```Dockerfile
-# Use the Red Hat UBI8-minimal image with STIG from the IronBank repository
-FROM registry1.dso.mil/ironbank/redhat/ubi8-minimal:latest
+```
+# Dockerfile
+FROM registry1.dso.mil/ironbank/redhat/ubi8/ubi8-minimal:latest
 
-# Set up Docker registry authentication
-ARG DOCKER_REGISTRY_USERNAME
-ARG DOCKER_REGISTRY_PASSWORD
-RUN echo "${DOCKER_REGISTRY_USERNAME}:${DOCKER_REGISTRY_PASSWORD}" | base64
-
-# Install required packages
-RUN microdnf install -y python3 python3-pip openssh-clients && \
-    microdnf clean all && \
+# Install necessary packages
+RUN microdnf install -y python3-pip gcc python3-devel openssh-clients && \
+    pip3 install --upgrade pip && \
     pip3 install ansible boto3
 
-# Copy Ansible configuration files and playbooks
-COPY ansible /ansible
+# Set up the working directory
 WORKDIR /ansible
 
-# Run the Ansible playbook to create the VM and configure CloudFlare DNS
+# Copy the Ansible playbook and configuration files
+COPY create_vm.yml /ansible/
+COPY ansible.cfg /ansible/
+COPY inventory /ansible/
+
+# Set up the environment variables for AWS credentials and Cloudflare
+ENV AWS_ACCESS_KEY_ID=<your_aws_access_key_id>
+ENV AWS_SECRET_ACCESS_KEY=<your_aws_secret_access_key>
+ENV CLOUDFLARE_EMAIL=<your_cloudflare_email>
+ENV CLOUDFLARE_API_KEY=<your_cloudflare_api_key>
+
+# Run the Ansible playbook
 CMD ["ansible-playbook", "create_vm.yml"]
 ```
 
-2. In the `ansible` folder, create a new file called `create_vm.yml` with the following content:
+2. Create the following Ansible files:
+
+- `create_vm.yml`: The main playbook.
+- `ansible.cfg`: The Ansible configuration file.
+- `inventory`: The inventory file.
+
+Here are the contents for each file:
+
+`create_vm.yml`:
 
 ```yaml
 ---
-- name: Create AWS VM and configure CloudFlare DNS
+- name: Create AWS VM and configure DNS with Cloudflare
   hosts: localhost
   gather_facts: no
-  vars:
-    aws_region: ap-southeast-2
-    aws_access_key: <your_aws_access_key>
-    aws_secret_key: <your_aws_secret_key>
-    cf_api_token: <your_cloudflare_api_token>
-    cf_zone: dnsdevsecops.com
-    cf_record: 1sky-jump
-    vpc_subnet_id: vpc-01d625522816619eb
-    instance_type: t2.micro
-
   tasks:
-    - name: Provision AWS instance
+    - name: Launch AWS EC2 instance
       amazon.aws.ec2_instance:
-        region: "{{ aws_region }}"
         key_name: 1SkyDemo
-        instance_type: "{{ instance_type }}"
-        image: ami-xxxxxxxxxxxxxxxxx # Replace with Amazon Linux 2023 AMI ID for Sydney region
-        instance_tags:
-          Name: 1sky-jump
-        vpc_subnet_id: "{{ vpc_subnet_id }}"
+        instance_type: t2.micro
+        image_id: ami-0f6ad051716c81af1
+        region: ap-southeast-2
+        vpc_subnet_id: vpc-01d625522816619eb
         wait: yes
         assign_public_ip: yes
+        instance_tags:
+          Name: 1sky-jump
       register: ec2
 
-    - name: Set IP address
-      set_fact:
-        instance_public_ip: "{{ ec2.instances[0].public_ip }}"
+    - name: Add new instance to inventory
+      add_host:
+        name: 1sky-jump
+        groups: aws
+        ansible_host: "{{ ec2.instances[0].public_ip }}"
+        ansible_ssh_private_key_file: 1SkyDemo.pem
+        ansible_user: ec2-user
 
+- name: Install Docker and set hostname
+  hosts: aws
+  gather_facts: yes
+  become: yes
+  tasks:
     - name: Install Docker
-      ansible.builtin.shell: |
-        sudo yum update -y
-        sudo amazon-linux-extras install docker -y
-        sudo service docker start
-        sudo usermod -a -G docker ec2-user
-      delegate_to: "{{ instance_public_ip }}"
-      remote_user: ec2-user
-      become: yes
-      become_method: sudo
-
-    - name: Configure CloudFlare DNS A record
-      community.cloudflare.cloudflare_dns:
-        zone: "{{ cf_zone }}"
-        record: "{{ cf_record }}"
-        type: A
-        content: "{{ instance_public_ip }}"
-        proxied: no
+      ansible.builtin.package:
+        name: docker
         state: present
-        account_api_token: "{{ cf_api_token }}"
-```
 
-3. In the `ansible` folder, create a new file called `terminate_vm.yml` with the following content:
+    - name: Enable and start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: yes
+        state: started
 
-```yaml
----
-- name: Terminate AWS VM and destroy resources
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: 1sky-jump
+
+    - name: Add public key to authorized_keys
+      ansible.builtin.authorized_key:
+        user: ec2-user
+        key: "ssh-ed25519 <your_public_key> 1SkyDemo"
+
+- name: Update Cloudflare DNS
   hosts: localhost
   gather_facts: no
-  vars:
-    aws_region: ap-southeast-2
-    aws_access_key: <your_aws_access_key>
-    aws_secret_key: <your_aws_secret_key>
-    instance_name: 1sky-jump
-
   tasks:
-    - name: Find instance by name
-      amazon.aws.ec2_instance_info:
-        region: "{{ aws_region }}"
-        filters:
-   	tag:Name": "{{ instance_name }}"
-      register: instances_info
-
-    - name: Terminate the instance
-      amazon.aws.ec2_instance:
-        region: "{{ aws_region }}"
-        instance_ids: "{{ instances_info.instances[0].instance_id }}"
-        state: absent
-      when: instances_info.instances|length > 0
-
-    - name: Remove the CloudFlare DNS A record
-      vars:
-        cf_api_token: <your_cloudflare_api_token>
-        cf_zone: dnsdevsecops.com
-        cf_record: 1sky-jump
+    - name: Create A record on Cloudflare
       community.cloudflare.cloudflare_dns:
-        zone: "{{ cf_zone }}"
-        record: "{{ cf_record }}"
+        zone: dnsdevsecops.com
+        record: 1sky-jump
         type: A
+        content: "{{ hostvars['1sky-jump']['ansible_host'] }}"
+        account_email: "{{ lookup('env', 'CLOUDFLARE_EMAIL')}}"
+account_api_token: "{{ lookup('env', 'CLOUDFLARE_API_KEY') }}"
+state: present
+
+present
+
+makefile
+Copy code
+
+`ansible.cfg`:
+
+```ini
+[defaults]
+host_key_checking = False
+inventory = inventory
+inventory:
+
+csharp
+Copy code
+[aws]
+Build the Docker container:
+Copy code
+docker build -t buildjumphost .
+Run the container:
+arduino
+Copy code
+docker run --rm -it buildjumphost
+After the container runs successfully, you'll be able to SSH into the created VM using the private key file for the "1SkyDemo" key pair:
+
+css
+Copy code
+ssh -i 1SkyDemo.pem ec2-user@<VM_IP_ADDRESS>
+Replace <VM_IP_ADDRESS> with the actual public IP address of the created VM.
+
+Create an Ansible script to terminate the VM and destroy all its resources:
+terminate_vm.yml:
+
+yaml
+Copy code
+---
+- name: Terminate AWS VM and remove DNS record on Cloudflare
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Get instance details
+      amazon.aws.ec2_instance_info:
+        filters:
+          "tag:Name": 1sky-jump
+        region: ap-southeast-2
+      register: ec2_info
+
+    - name: Terminate EC2 instance
+      amazon.aws.ec2:
+        instance_ids: "{{ ec2_info.instances[0].instance_id }}"
         state: absent
-        account_api_token: "{{ cf_api_token }}"
-```
+        region: ap-southeast-2
+        wait: yes
 
-To build the container, run the following command:
+    - name: Remove A record on Cloudflare
+      community.cloudflare.cloudflare_dns:
+        zone: dnsdevsecops.com
+        record: 1sky-jump
+        type: A
+        account_email: "{{ lookup('env', 'CLOUDFLARE_EMAIL') }}"
+        account_api_token: "{{ lookup('env', 'CLOUDFLARE_API_KEY') }}"
+        state: absent
+To run the terminate_vm.yml script, use the following command:
 
-```
-docker build --build-arg DOCKER_REGISTRY_USERNAME=Philip_Haynes --build-arg DOCKER_REGISTRY_PASSWORD=5JaeSknfGCdTg1TNrVhilLNsgQlV0AMm -t buildjumphost .
-```
-
-To run the container, execute:
-
-```
-docker run --rm buildjumphost
-```
-
-After the container finishes running, you should be able to log into the VM using the 1SkyDemo key pair:
-
-```
-ssh -i 1SkyDemo.pem ec2-user@1sky-jump.dnsdevsecops.com
-```
-
-To terminate the VM and destroy all its resources, run the following command:
-
-```
-ansible-playbook ansible/terminate_vm.yml
-```
+Copy code
+ansible-playbook terminate_vm.yml
+This script will terminate the VM and remove the associated DNS A record from Cloudflare.
 
