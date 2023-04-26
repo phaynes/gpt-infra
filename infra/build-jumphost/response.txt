@@ -4,7 +4,7 @@ Below, you'll find a Dockerfile and an Ansible playbook to achieve the requested
 
 ```
 # Dockerfile
-FROM registry1.dso.mil/ironbank/redhat/ubi8/ubi8-minimal:latest
+FROM registry1.dso.mil/ironbank/redhat/ubi/ubi8-minimal:latest
 
 # Install necessary packages
 RUN microdnf install -y python3-pip gcc python3-devel openssh-clients && \
