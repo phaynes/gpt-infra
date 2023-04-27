@@ -1,0 +1,50 @@
+---
+- name: Create AWS VM and configure DNS with Cloudflare
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Launch AWS EC2 instance
+      amazon.aws.ec2_instance:
+        key_name: 1SkyDemo
+        instance_type: t2.micro
+        image_id: ami-0f6ad051716c81af1
+        region: ap-southeast-2
+        subnet_id: subnet-fc2bc68b
+        security_group: ssh-jump
+        wait: yes
+        wait_timeout: 500
+        network:
+          assign_public_ip: true
+          delete_on_termination: true
+        name: 1sky-jump
+      register: ec2
+
+
+    - name: Add new instance to inventory
+      add_host:
+        name: 1sky-jump
+        groups: aws
+        ansible_host: "{{ ec2.instances[0].public_ip }}"
+        ansible_ssh_private_key_file: 1SkyDemo.pem
+        ansible_user: ec2-user
+
+- name: Install Docker and set hostname
+  hosts: aws
+  gather_facts: yes
+  become: yes
+  tasks:
+    - name: Install Docker
+      ansible.builtin.package:
+        name: docker
+        state: present
+
+    - name: Enable and start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: 1sky-jump
+

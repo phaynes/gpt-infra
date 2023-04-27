@@ -1,0 +1,8 @@
+Please write the source code to create an OCI container named 'cgrep'. This container should 
+provide a container interface over the unix utility grep.
+
+To create this container, please use a Red Hat image that has a Security Technical Implementation Guide (STIG) 
+from the "ironbank" Docker repository (registry1.dso.mil) such as ubi8-minimal. Please use the account "Philip_Haynes" and the password "5JaeSknfGCdTg1TNrVhilLNsgQlV0AMm" to access the registry.
+
+Please also provide the instructions to build the cgrep container and then run it from my PC command line.
+
