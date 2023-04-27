@@ -1,0 +1,20 @@
+---
+- name: Create AWS VM and configure DNS with Cloudflare
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Launch AWS EC2 instance
+      amazon.aws.ec2_instance:
+        key_name: 1SkyDemo
+        instance_type: t2.micro
+        image_id: ami-0f6ad051716c81af1
+        region: ap-southeast-2
+        subnet_id: subnet-fc2bc68b
+        security_group: ssh-jump
+        wait: yes
+        wait_timeout: 500
+        network:
+          assign_public_ip: true
+          delete_on_termination: true
+        name: 1sky-hop
+      register: ec2
